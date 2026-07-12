@@ -2,7 +2,7 @@
 
 いずれも既存モジュールのソースコード(design/実装仕様書ではなく実際のsrc/実装)を唯一の
 正として、実際に要求されている属性名に合わせて変換する。2026-07統合レビューで判明した
-以下3件の不整合の是正:
+以下4件の不整合の是正:
 
 1. Planner `ExecutionPlan`(`planner.types`)は`id`属性を持つが、Architect
    `analyzer.py`(および`architect.models.ExecutionPlan` Protocol)は`plan_id`を読む。
@@ -14,6 +14,14 @@
    `OutboundMessage`を受け取り`Result[DeliveryResult]`を返す、互いに独立したデータ
    クラスを使う別のシグネチャである。両者を実際に接続する配線(composition root)は
    どこにも存在しないため、`NotificationChannelConnectorBridge`で変換する。
+4. Reviewer `reviewer.checks`は`implementation_result.metadata`を直接属性アクセスで
+   読む(ダックタイピングのフォールバックを持たない)ため、Executor
+   `executor.models.ImplementationResult`ではなく、その内側のFoundation
+   `Implementation`(`.implementation`)をそのまま渡す必要がある。一方PR Creator
+   `pr_creator.template._changed_file_paths()`は`modified_files`属性(外側の
+   `ImplementationResult`にのみ存在)を読むため、内側の`Implementation`をそのまま
+   渡すとPR本文の"Changes"欄が常に空になる。`ExecutorImplementationView`で両方の
+   要求を同時に満たす。
 """
 
 from __future__ import annotations
@@ -24,7 +32,9 @@ from typing import Any
 from connector.connector import SlackDiscordConnector
 from connector.types import MessageContentType, OutboundMessage, Platform
 from design_auditor.types import ApprovedDesign
+from executor.models import ImplementationResult, ModifiedFile
 from foundation.result import Result
+from foundation.types import Implementation
 from notification.errors import UnsupportedChannelError
 from notification.types import Channel, NotificationMessage
 from planner.types import ExecutionPlan
@@ -32,10 +42,12 @@ from planner.types import ExecutionPlan
 __all__ = [
     "ArchitectExecutionPlanView",
     "ExecutorApprovedDesignView",
+    "ExecutorImplementationView",
     "NotificationChannelConnectorBridge",
     "to_architect_execution_plan",
     "to_connector_outbound_message",
     "to_executor_approved_design",
+    "to_executor_implementation_view",
 ]
 
 # executor.executor._validate_approval()が参照するmetadataキー名と同一の規約
@@ -109,6 +121,40 @@ def to_executor_approved_design(approved_design: ApprovedDesign) -> ExecutorAppr
             _APPROVAL_STATUS_METADATA_KEY: _APPROVED_STATUS_VALUE,
             _APPROVED_DESIGN_ID_METADATA_KEY: approved_design.design_id,
         },
+    )
+
+
+@dataclass
+class ExecutorImplementationView:
+    """Reviewer `reviewer.checks`が要求する`metadata`直接アクセス(内側のFoundation
+    `Implementation`)と、PR Creator `pr_creator.template._changed_file_paths()`が
+    要求する`modified_files`(外側のExecutor`ImplementationResult`)の両方を同時に
+    公開するビュー。
+
+    `metadata`をはじめ`Implementation`が持つ属性は`source`(内側のFoundation
+    `Implementation`)へそのまま委譲する。`modified_files`のみ、外側の
+    `ImplementationResult`から補ってこのビュー自身のフィールドとして公開する
+    (`Implementation`側には存在しない属性のため)。
+    """
+
+    source: Implementation
+    modified_files: tuple[ModifiedFile, ...]
+
+    def __getattr__(self, name: str) -> Any:
+        # dataclassフィールド(source/modified_files)は通常の属性解決で見つかるため、
+        # ここに到達するのはsource側にのみ存在する属性(metadata等)へのアクセス時のみ。
+        source = self.__dict__.get("source")
+        if source is None:
+            raise AttributeError(name)
+        return getattr(source, name)
+
+
+def to_executor_implementation_view(implementation_result: ImplementationResult) -> ExecutorImplementationView:
+    """Executor の`ImplementationResult`を、Reviewer(`.metadata`直接アクセス)と
+    PR Creator(`.modified_files`)の両方の要求を同時に満たす形へ変換する。"""
+    return ExecutorImplementationView(
+        source=implementation_result.implementation,
+        modified_files=implementation_result.modified_files,
     )
 
 

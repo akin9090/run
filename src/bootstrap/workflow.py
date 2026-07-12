@@ -14,7 +14,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from architect.models import ValidatedDesign
-from bootstrap.adapters import to_architect_execution_plan, to_executor_approved_design
+from bootstrap.adapters import (
+    to_architect_execution_plan,
+    to_executor_approved_design,
+    to_executor_implementation_view,
+)
 from bootstrap.wiring import Application
 from executor.models import RepositoryInfo
 from foundation.result import Result
@@ -124,12 +128,13 @@ def run_workflow(app: Application, request: NormalizedRequest, business_goal: st
     # --- PR Creator (M11) ---
     # Reviewer(reviewer.checks)は`implementation_result.metadata`へ直接アクセスする
     # (executor.models.ImplementationResultではなく、その内側のFoundation
-    # `Implementation`を期待する。PR Creatorのtemplate.pyはダックタイピングで
-    # どちらの形でも動作するため、より厳格な要求元(Reviewer)に合わせて
-    # `.implementation`を渡す)。
+    # `Implementation`を期待する)。一方PR Creatorのtemplate.py `_changed_file_paths()`は
+    # `modified_files`(外側のImplementationResultにのみ存在)を読むため、内側の
+    # `Implementation`だけを渡すとPR本文の"Changes"欄が常に空になる。
+    # `bootstrap.adapters.ExecutorImplementationView`で両方の要求を同時に満たす。
     pr_input = CreatePullRequestInput(
         workflow_id=request.workflow_id,
-        implementation_result=implementation_result_value.implementation,
+        implementation_result=to_executor_implementation_view(implementation_result_value),
         test_report=test_report,
         repository_information=RepositoryInformation(owner="stub", name="repo", default_branch="main"),
         branch_information=BranchInformation(base_branch="main", head_branch=f"bootstrap/{request.workflow_id}"),
