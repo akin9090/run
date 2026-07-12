@@ -18,6 +18,7 @@ from foundation.types import Design, Review
 from github_manager.client import HttpResponse as GitHubHttpResponse
 from tester.models import CommandExecutionResult
 from weekly_reviewer.models import (
+    BusinessAlignmentStatus,
     BusinessEvaluation,
     MvpEvaluation,
     ReviewPeriod,
@@ -190,7 +191,7 @@ class StubFableClientTest(unittest.TestCase):
     def test_recommend_priorities_returns_result_with_four_lists(self) -> None:
         client = StubFableClient()
         analysis = self._create_weekly_analysis()
-        business_eval = BusinessEvaluation(business_goal="test", alignment_status="aligned")
+        business_eval = BusinessEvaluation(business_goal="test", alignment_status=BusinessAlignmentStatus.ALIGNED)
         mvp_eval = MvpEvaluation()
         debt = TechnicalDebtFinding()
 

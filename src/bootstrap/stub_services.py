@@ -8,6 +8,7 @@ Phase 0(配線層検証)専用のスタブ実装。
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from connector.http_client import HttpResponse
@@ -18,6 +19,7 @@ from github_manager.client import HttpResponse as GitHubHttpResponse
 from tester.models import CommandExecutionResult
 from weekly_reviewer.fable_client import FableClient
 from weekly_reviewer.models import (
+    BusinessAlignmentStatus,
     BusinessEvaluation,
     MvpEvaluation,
     TechnicalDebtFinding,
@@ -37,7 +39,7 @@ class StubCodexAdapter:
         """設計内容に基づき実装コードを生成し、変更ファイル一覧を返す。"""
         _logger.info("stub_codex_generate_implementation")
         stub_file = ModifiedFile(
-            path=__import__("pathlib").Path("stub.py"),
+            path=Path("stub.py"),
             change_type="created",
             summary="stub generated implementation",
         )
@@ -49,8 +51,8 @@ class StubCodexAdapter:
         """生成済み実装に対応するテストコードを生成する。テストの実行は行わない。"""
         _logger.info("stub_codex_generate_tests files_count=%d", len(modified_files))
         stub_test = GeneratedTest(
-            path=__import__("pathlib").Path("test_stub.py"),
-            target_path=__import__("pathlib").Path("stub.py"),
+            path=Path("test_stub.py"),
+            target_path=Path("stub.py"),
             summary="stub generated test",
         )
         return Result(success=True, value=(stub_test,))
@@ -123,7 +125,7 @@ class StubFableClient(FableClient):
             success=True,
             value=BusinessEvaluation(
                 business_goal=business_goal,
-                alignment_status="aligned",
+                alignment_status=BusinessAlignmentStatus.ALIGNED,
             ),
         )
 
