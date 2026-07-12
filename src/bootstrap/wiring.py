@@ -139,7 +139,7 @@ class Application:
         ]
 
 
-def build_application(*, use_real_github: bool = False) -> Application:
+def build_application(*, use_real_github: bool = False, use_real_slack: bool = False) -> Application:
     """21モジュール(Foundationを除く20モジュール)を配線した`Application`を返す。
 
     `use_real_github=True`の場合、GitHub Manager(M20)はスタブHttpTransportではなく
@@ -148,6 +148,12 @@ def build_application(*, use_real_github: bool = False) -> Application:
     からのみ取得し(値そのものをコード・設定ファイルに書き込まない)、未設定の場合は
     `RuntimeError`を送出する。GitHub Managerは設計上Read Onlyのみ(3.5節)であり、
     PR Creator(書き込み経路)は本フラグの対象外(引き続きスタブのまま)。
+
+    `use_real_slack=True`の場合、Connector(M21)のSlackAdapterはスタブHttpClientでは
+    なく実際のSlack Web API(標準ライブラリ`urllib`のみを用いる`UrllibHttpClient`、
+    `src/connector/http_client.py`に既存)へ接続する。トークンは環境変数
+    `SLACK_BOT_TOKEN`からのみ取得し、未設定の場合は`RuntimeError`を送出する。
+    DiscordAdapterは本フラグの対象外(引き続きスタブのまま、Phase 1-D相当)。
     """
     startup_parameters: dict[str, str] = {}
     if use_real_github:
@@ -155,6 +161,11 @@ def build_application(*, use_real_github: bool = False) -> Application:
         if not github_token:
             raise RuntimeError("use_real_github=True の場合、環境変数 GITHUB_TOKEN の設定が必要です。")
         startup_parameters["github_manager.github_access_token"] = github_token
+    if use_real_slack:
+        slack_token = os.environ.get("SLACK_BOT_TOKEN", "")
+        if not slack_token:
+            raise RuntimeError("use_real_slack=True の場合、環境変数 SLACK_BOT_TOKEN の設定が必要です。")
+        startup_parameters["connector.slack_bot_token"] = slack_token
 
     config = build_configuration_manager(startup_parameters=startup_parameters)
     load_result = config.load(
@@ -227,11 +238,16 @@ def build_application(*, use_real_github: bool = False) -> Application:
 
     # SlackDiscordConnector.health_check()は内部でAdapter.check_connection()経由の
     # HTTPリクエストを実行する。Adapterの既定http_client(UrllibHttpClient)のまま構築すると
-    # Phase 0環境(実ネットワーク接続・実トークンなし)ではhealth_check()がFalseを返すため、
-    # StubHttpClient(Connector(M21)向けスタブ)を明示的に注入したAdapterを使う。
+    # 実ネットワーク接続・実トークンなしの環境ではhealth_check()がFalseを返すため、
+    # use_real_slackがFalseの間はStubHttpClient(Connector(M21)向けスタブ)を明示的に
+    # 注入したAdapterを使う。DiscordAdapterはPhase 1-D相当のため常にスタブのまま。
+    if use_real_slack:
+        slack_adapter: SlackAdapter = SlackAdapter(config_client=config)
+    else:
+        slack_adapter = SlackAdapter(config_client=config, http_client=StubHttpClient())
     connector = SlackDiscordConnector(
         config_client=config,
-        slack_adapter=SlackAdapter(config_client=config, http_client=StubHttpClient()),
+        slack_adapter=slack_adapter,
         discord_adapter=DiscordAdapter(config_client=config, http_client=StubHttpClient()),
     )
 
