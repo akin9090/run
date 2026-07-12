@@ -83,3 +83,59 @@ Executor(M09)→Tester(M10)→PR Creator(M11)→Reviewer(M12)→Weekly Reviewer(
 | CHANGELOG反映済 | 本ファイルとして反映済み |
 
 詳細は `DESIGN_FREEZE_v1.0.md` を参照。
+
+## v1.1.0 (Phase 0: 配線層)
+
+Design Freeze v1.0確定後、22モジュール(M00〜M21、M18は欠番)全体の統合配線、およびこれらを直列に呼び出す合成Workflowの実装により、外部サービスに一切接続しない状態での端末到達(Planner→Architect→Design Auditor→Executor→Tester→PR Creator→Reviewer)を実現した。Phase 0 Bootstrap段階として、実装可能性・モジュール間結合の動作確認を主目的とする。
+
+### 追加(Task 1: スタブ外部アダプタ)
+
+- **`bootstrap/stub_services.py`**: Executor(M09)・Tester(M10)・PR Creator(M11)が外部サービス(Codex・Command Executor・GitHub API)へアクセスする箇所を、Phase 0での外部接続を回避するためスタブ実装で置き換えた。CodexのImplementation生成、CommandExecutorのコマンド実行、GitHub APIへのPull Request作成をそれぞれ合成データで返す。
+
+### 追加(Task 2: ConfigurationManager 配線層)
+
+- **`bootstrap/wiring.py`**: 22モジュール全体を依存関係通りにインスタンス化し、 Application 集約根を構成する `build_application()` 関数を実装した。各モジュールの必須設定(例: State Manager の backend_path)をConfigurationManager経由で取得し、通常の本番実行と同じ設定フローで初期化する。Configuration自体は Phase 0 想定の固定値セット(github_access_token欠落等で検証エラーになるが、ConfigurationManager側で graceful に処理する)を使用。
+
+### 追加(Task 3: 型不整合アダプタ)
+
+- **`bootstrap/adapters.py`**: Planner→Architect→Design Auditor→Executor→Tester→PR Creator→Reviewer の各ステップで型・データ形式の不整合を吸収する変換関数群を実装した。
+  - `to_architect_execution_plan()`: Planner の `ExecutionPlan` → Architect が期待する形式へ変換(plan_id, requirement_list等)
+  - `to_executor_approved_design()`: Design Auditor の `ApprovedDesign` → Executor の `metadata` 形式へ変換
+  - `to_executor_implementation_view()`: Executor の `ImplementationResult` → PR Creator が「内側の `Implementation` と 外側の `modified_files` の両方」を参照できる統合ビューへ変換
+
+### 追加(Task 4: 21モジュール結線・Application構築)
+
+- 詳細設計書・実装仕様書で定義された 22モジュール全体(M00〜M21、M18は欠番)の Dependency Injection を `bootstrap/wiring.py::build_application()` に統合した。以下を確認:
+  - 全モジュール(Foundation M00 含む)のコンストラクタパラメータが揃う
+  - ConfigurationManager(M17)経由の設定値取得が全モジュール共通
+  - State Manager(M01)・Knowledge Manager(M03)・Context Manager(M19)等の基盤層が正常に初期化される
+  - Executor/Tester/PR Creator の外部サービス依存をスタブで置き換え可能
+  - Unit Test 総数 871件が全て通過
+
+### 追加(Task 5: 合成Workflow 実行確認)
+
+- **`bootstrap/workflow.py`**: NormalizedRequest(Planner入力)を起点に、7つのモジュール(Planner→Architect→Design Auditor→Executor→Tester→PR Creator→Reviewer)を直列に呼び出し、ReviewOutcome(最終成果物)まで到達する `run_workflow()` 関数を実装した。各ステップの Result 型をチェックし、失敗時は短絡(early return)して後続をスキップする。
+- Planner〜Reviewer のいずれも `business_goal` パラメータを生成しないため、Workflow関数の引数として明示的に受け取り、PR Creator経由で Reviewer まで伝播させる(project_context["business_goal"]経由)。
+- Executor/Tester/PR Creator のスタブ呼び出し完了確認、および end-to-end の成功フロー(`result.success = True`)を検証。
+
+### 追加(Task 6: CLIエントリポイント)
+
+- **`src/bootstrap/run.py`**: argparse ベースのコマンドラインインターフェース。引数 `instruction`(自然言語指示、例:"LP改善") と `--business-goal`(事業目的、例:"LINE登録数最大化") を受け取り、以下を実行:
+  1. `build_application()` で完全な Application を構築
+  2. instruction を NormalizedRequest(command/request_text フィールド)へマッピング
+  3. `run_workflow()` で 7モジュール合成を実行
+  4. ReviewOutcome をそのまま標準出力へ表示
+  5. 失敗時は stderr へエラーログを出力し、exit code 1 で終了
+
+- **テスト** (`tests/bootstrap/test_run.py`): stdout キャプチャにより ReviewOutcome の出力確認、exit code 0 の確認。
+
+### 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| Unit Test(871件既存 + 1新規) | 全 872件通過 |
+| 手動スモークテスト(`python -m bootstrap.run`) | 例外なく完了、ReviewOutcome表示確認 |
+| Ruff チェック | All checks passed |
+| Black フォーマット | 303 files unchanged |
+| 外部サービス接続 | なし(スタブのみ) |
+| 設定値取得失敗の graceful handling | ConfigurationManager が検証エラーをログし、モジュール初期化継続 |
