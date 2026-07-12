@@ -17,5 +17,53 @@
     "model": ""
   },
   "fable": {},
-  "monitoring": {}
+  "monitoring": {},
+  "state_manager": {
+    "lock_timeout_seconds": 30,
+    "backend_path": ""
+  },
+  "permission_manager": {
+    "permissions": []
+  },
+  "pr_creator": {
+    "github_access_token": ""
+  },
+  "github_manager": {
+    "github_access_token": ""
+  },
+  "connector": {
+    "slack_bot_token": "",
+    "discord_bot_token": "",
+    "discord_bot_user_id": ""
+  },
+  "reviewer": {
+    "min_business_score": 0,
+    "blocker_severity_blocks_approval": true
+  },
+  "task_queue": {
+    "max_parallel_executions": 1,
+    "max_retry_count": 3,
+    "worker_timeout_seconds": 300.0
+  },
+  "Monitoring": {
+    "execution_time_threshold_minutes": 30,
+    "failure_rate_threshold_percent": 20,
+    "retry_count_threshold": 3,
+    "heartbeat_freshness_seconds": 60
+  },
+  "context_manager": {
+    "system.environment": "development"
+  },
+  "command_router": {
+    "routing_table": {}
+  },
+  "design_auditor": {
+    "health_check": true
+  },
+  "architect": {
+    "health_check": true
+  },
+  "notification": {
+    "health_check": true
+  }
 }
