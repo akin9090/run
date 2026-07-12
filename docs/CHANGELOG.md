@@ -192,4 +192,4 @@ GitHub Manager/PR Creatorと同じ構図)。これを踏まえ、以下を追加
 |---|---|
 | Unit Test | 全882件通過(既存877件 + 本フェーズ新規5件) |
 | Ruff / Black | クリーン |
-| 実ネットワーク接続 | 未検証(Slack App作成・Bot Token発行待ち) |
+| 実ネットワーク接続 | **検証済み**(`python -m bootstrap.slack_smoke_test` をユーザー環境で実行し、実Slack Appに対して`OK: Slack auth.test succeeded`を確認。`SLACK_BOT_TOKEN`はBot User OAuth Tokenを使用) |
