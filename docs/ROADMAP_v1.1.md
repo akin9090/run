@@ -99,7 +99,13 @@ Slackが機能すれば必須ではない。ユーザーの実利用チャネル
 3. **本番拡大**: 実績を見ながら対象リポジトリ・チャネルを拡大
 
 **成果物**:
-- Permission Managerの`DEFAULT_PERMISSIONS`をShadow Mode用に一時的に絞ったプロファイルとして`config/default.json`の`permission_manager.extra`領域に定義
+- Permission Managerの`DEFAULT_PERMISSIONS`をShadow Mode用に一時的に絞ったプロファイル
+  (`SHADOW_MODE_PERMISSIONS`)として`src/permission_manager/default_permissions.py`に
+  定義し、`PermissionManager`のコンストラクタ引数(`permissions`)経由で差し替え可能にする
+  (2026-07実装時の是正: `PermissionManager.reload()`はConfigurationClientの戻り値を
+  そのまま`PermissionEntry`として扱うため、JSONプリミティブしか保持できない
+  `config/default.json`からは読み込めない。詳細は
+  `docs/superpowers/specs/2026-07-13-phase3-shadow-mode-design.md`参照)
 - Monitoring→Notificationの実アラート配線確認(障害時に人間へ通知が届くこと自体の動作確認)
 
 ---
