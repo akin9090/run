@@ -21,10 +21,14 @@ from bootstrap.adapters import (
 )
 from bootstrap.wiring import Application
 from executor.models import RepositoryInfo
+from foundation.logger import get_logger
 from foundation.result import Result
+from notification.types import Channel, EventType, NotificationEvent
 from planner.types import NormalizedRequest
 from pr_creator.models import BranchInformation, CreatePullRequestInput, RepositoryInformation
 from reviewer.domain import ReviewOutcome
+
+_logger = get_logger("bootstrap.workflow")
 
 
 def run_workflow(app: Application, request: NormalizedRequest, business_goal: str) -> Result[ReviewOutcome]:
@@ -154,4 +158,52 @@ def run_workflow(app: Application, request: NormalizedRequest, business_goal: st
     if not review_report_result.success:
         return Result(success=False, error=review_report_result.error)
 
-    return app.reviewer.publish_review(review_report_result.value)
+    review_outcome_result = app.reviewer.publish_review(review_report_result.value)
+    if not review_outcome_result.success:
+        return Result(success=False, error=review_outcome_result.error)
+
+    _notify_review_completed(app, request.workflow_id, review_outcome_result.value)
+
+    return review_outcome_result
+
+
+def _notify_review_completed(app: Application, workflow_id: str, outcome: ReviewOutcome) -> None:
+    """Reviewerの最終判断をNotification経由で人間に通知する(Phase 3 Shadow Mode)。
+
+    通知の失敗はWorkflow全体の結果(`Result[ReviewOutcome]`)に影響させない
+    (このヘルパーは戻り値を持たず、失敗時は警告ログのみ出力する)。
+    """
+    recipient_result = app.configuration_manager.get("notification", "default_recipient")
+    channel_result = app.configuration_manager.get("notification", "default_channel")
+    if not recipient_result.success or not channel_result.success:
+        _logger.warning("review completed notification skipped: recipient/channel not configured")
+        return
+
+    try:
+        channel = Channel(str(channel_result.value))
+    except ValueError:
+        _logger.warning("review completed notification skipped: invalid channel configured")
+        return
+
+    event = NotificationEvent(
+        workflow_id=workflow_id,
+        event_type=EventType.REVIEW_COMPLETED,
+        event_result={"decision": outcome.decision.value, "next_module": outcome.next_module},
+        recipient=str(recipient_result.value),
+        notification_template="review_completed_template",
+        configuration={"channel": channel.value},
+    )
+
+    message_result = app.notification.create_message(event)
+    if not message_result.success:
+        _logger.warning("review completed notification failed at create_message: %s", message_result.error)
+        return
+
+    send_result = app.notification.send(message_result.value)
+    if not send_result.success:
+        _logger.warning("review completed notification failed at send: %s", send_result.error)
+        return
+
+    publish_result = app.notification.publish(send_result.value)
+    if not publish_result.success:
+        _logger.warning("review completed notification failed at publish: %s", publish_result.error)

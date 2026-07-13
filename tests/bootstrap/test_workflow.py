@@ -40,6 +40,24 @@ class RunWorkflowTest(unittest.TestCase):
         self.assertIn(outcome.next_module, ("merge_manager", "executor"))
         self.assertTrue(outcome.review_id)
 
+    def test_review_completed_notification_is_sent_to_configured_channel(self) -> None:
+        app = build_application()
+        request = NormalizedRequest(
+            workflow_id="wf-bootstrap-notify",
+            command="LP改善",
+            request_text="LPの登録導線を改善してください。既存のデザインは維持すること。",
+        )
+
+        result = run_workflow(app, request, business_goal="LINE登録数最大化")
+
+        self.assertTrue(result.success, msg=str(result.error))
+        histories_result = app.notification._history_store.list_all()  # noqa: SLF001 - 配信確認のみ
+        self.assertTrue(histories_result.success)
+        self.assertTrue(
+            any(h.workflow_id == "wf-bootstrap-notify" for h in histories_result.value),
+            msg="review_completed通知がNotificationHistoryStoreに記録されていない",
+        )
+
 
 class RunWorkflowPrBodyTest(unittest.TestCase):
     """PR CreatorのCreatePullRequestInputへ渡す`implementation_result`が、Reviewerの
