@@ -14,7 +14,7 @@
   },
   "discord": {},
   "codex": {
-    "model": ""
+    "model": "claude-haiku-4-5"
   },
   "fable": {},
   "monitoring": {},

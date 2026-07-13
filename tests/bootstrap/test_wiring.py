@@ -7,8 +7,10 @@
 import unittest
 from unittest.mock import patch
 
+from bootstrap.stub_services import StubCodexAdapter
 from bootstrap.wiring import build_application
 from connector.http_client import UrllibHttpClient
+from executor.claude_codex_adapter import ClaudeCodexAdapter
 from github_manager.client import UrllibHttpTransport
 from notification.types import Channel
 
@@ -101,6 +103,32 @@ class UseRealSlackTest(unittest.TestCase):
         discord_http_client = app.connector._discord_adapter._http_client  # noqa: SLF001
 
         self.assertNotIsInstance(discord_http_client, UrllibHttpClient)
+
+
+class UseRealCodexTest(unittest.TestCase):
+    """Phase 1-C: `use_real_codex=True`時にExecutor(M09)のCodexAdapterが実HTTP実装
+    (`ClaudeCodexAdapter`)で構築され、`ANTHROPIC_API_KEY`環境変数から認証情報を
+    取得することを確認する(実際のネットワーク呼び出しは行わない)。"""
+
+    def test_default_wiring_uses_stub_codex_adapter(self) -> None:
+        app = build_application()
+
+        codex_adapter = app.executor._codex_adapter  # noqa: SLF001 - 配線確認のみ
+
+        self.assertIsInstance(codex_adapter, StubCodexAdapter)
+
+    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-api-key-value"}, clear=False)
+    def test_use_real_codex_wires_claude_codex_adapter(self) -> None:
+        app = build_application(use_real_codex=True)
+
+        codex_adapter = app.executor._codex_adapter  # noqa: SLF001 - 配線確認のみ
+
+        self.assertIsInstance(codex_adapter, ClaudeCodexAdapter)
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_use_real_codex_without_key_raises_runtime_error(self) -> None:
+        with self.assertRaises(RuntimeError):
+            build_application(use_real_codex=True)
 
 
 if __name__ == "__main__":

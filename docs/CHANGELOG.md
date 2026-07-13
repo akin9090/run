@@ -213,3 +213,44 @@ GitHub Manager/PR Creatorと同じ構図)。これを踏まえ、以下を追加
 | Ruff / Black | クリーン |
 | リモートpush | 完了(`https://github.com/romyo4/run` の`master`ブランチへpush済み。PATに`workflow`スコープ相当の権限[Workflows: Read and write]が必要だった) |
 | push時のGitHub Actions自動トリガー | **動作確認していない**。GitHubアカウント側の制限により「Unable to enable Actions for this repository」でActions自体が有効化できず、`ci.yml`がpushをトリガーに実際に実行されるかどうかは未検証のまま。コード・ワークフロー設定側の問題ではない。アカウント制限解除後に再検証予定 |
+
+## v1.5.0 (Phase 1-C: Codex実接続の準備)
+
+Executor(M09)の`CodexAdapter`(`src/executor/codex_adapter.py`)はDesign Freeze時点で
+インターフェース(Protocol)のみが定義され、実際のCodex CLI/API呼び出しは対象外とされていた
+(GitHub Manager/Connectorとは異なり、実装クラスがそもそも存在しなかった)。本フェーズでは
+ユーザーの明示的な選択(Claude API(Anthropic)、標準ライブラリ`urllib`のみを用いる実装 -
+`anthropic`パッケージ等の外部SDKには依存しない)に基づき、以下を新規実装した。
+
+- **`src/executor/claude_codex_adapter.py`**(新規): `CodexAdapter` Protocolに準拠する
+  `ClaudeCodexAdapter`を実装した。Anthropic Messages API(`POST /v1/messages`)を
+  `output_config.format`(JSON Schema)で強制したJSON応答として呼び出し、
+  `executor.models.ModifiedFile`/`GeneratedTest`(いずれもDesign Freeze時点のDomain Model上
+  ファイル内容を持たない)に対応するpath/change_type(またはtarget_path)/summaryの一覧を
+  生成する。HTTP通信は`UrllibAnthropicHttpTransport`(標準ライブラリ`urllib`のみ)を既定実装
+  とし、テストでは`AnthropicHttpTransport` Protocolを満たすフェイクを注入する
+  (GitHub Manager `UrllibHttpTransport`・Connector `UrllibHttpClient`と同じ構図)。
+  APIキーは`ConfigurationClient`経由(`executor.api_key`、Configuration.extra経由)でのみ
+  取得し、ログ・例外メッセージには一切含めない。モデル名は既存の"codex"カテゴリ
+  (`config/default.json`の`codex.model`、`CodexConfig.model`)から取得し、未設定時は
+  `claude-opus-4-8`を既定値とする。`max_retry`回まで5xx/ネットワークエラーを再試行する。
+  スモークテスト専用に、`CodexAdapter` Protocol外の`verify_api_key()`
+  (Anthropic Models APIへの読み取り専用GET、トークン消費なし)も追加した。
+- **`src/bootstrap/wiring.py`**: `build_application(use_real_codex=True)`で、
+  Executor(M09)のCodexAdapterがスタブ(`StubCodexAdapter`)ではなく実際のClaude APIへ
+  接続するよう切り替え可能にした。APIキーは環境変数`ANTHROPIC_API_KEY`からのみ取得し、
+  コード・設定ファイルには一切書き込まない。未設定の場合は`RuntimeError`。
+- **`src/bootstrap/claude_smoke_test.py`**(新規): `ClaudeCodexAdapter.verify_api_key()`
+  による実接続確認用の独立した手動スモークテストスクリプトを追加した。実際の実装生成呼び出し
+  (`generate_implementation()`/`generate_tests()`、Claude API利用課金が発生する)は接続確認後、
+  別途の判断を要するため本スクリプトの対象外とした。
+- **`config/default.json`**: `codex.model`をユーザー指示により`claude-haiku-4-5`に設定した
+  (実接続テスト時の利用料金を抑えるため。実運用モデルへ切り替える際は本値を変更する)。
+
+### 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| Unit Test | 全898件通過(既存882件 + 本フェーズ新規16件) |
+| Ruff / Black | クリーン |
+| 実ネットワーク接続 | **検証済み**(`python -m bootstrap.claude_smoke_test` をユーザー環境で実行し、実Claude APIに対して`OK: Claude Models API verification succeeded`を確認。`ANTHROPIC_API_KEY`使用、モデルは`codex.model`設定の`claude-haiku-4-5`) |

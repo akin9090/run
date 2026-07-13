@@ -38,6 +38,8 @@ from connector.discord_adapter import DiscordAdapter
 from connector.slack_adapter import SlackAdapter
 from context_manager.manager import ContextManager
 from design_auditor.module import DesignAuditor
+from executor.claude_codex_adapter import ClaudeCodexAdapter
+from executor.codex_adapter import CodexAdapter
 from executor.executor import Executor
 from executor.repository_guard import RepositoryGuard
 from foundation.base_module import BaseModule
@@ -139,7 +141,9 @@ class Application:
         ]
 
 
-def build_application(*, use_real_github: bool = False, use_real_slack: bool = False) -> Application:
+def build_application(
+    *, use_real_github: bool = False, use_real_slack: bool = False, use_real_codex: bool = False
+) -> Application:
     """21モジュール(Foundationを除く20モジュール)を配線した`Application`を返す。
 
     `use_real_github=True`の場合、GitHub Manager(M20)はスタブHttpTransportではなく
@@ -154,6 +158,12 @@ def build_application(*, use_real_github: bool = False, use_real_slack: bool = F
     `src/connector/http_client.py`に既存)へ接続する。トークンは環境変数
     `SLACK_BOT_TOKEN`からのみ取得し、未設定の場合は`RuntimeError`を送出する。
     DiscordAdapterは本フラグの対象外(引き続きスタブのまま、Phase 1-D相当)。
+
+    `use_real_codex=True`の場合、Executor(M09)のCodexAdapterはスタブ(`StubCodexAdapter`)
+    ではなく実際のAnthropic Claude API(標準ライブラリ`urllib`のみを用いる
+    `ClaudeCodexAdapter`、`src/executor/claude_codex_adapter.py`に既存)へ接続する。
+    APIキーは環境変数`ANTHROPIC_API_KEY`からのみ取得し、未設定の場合は`RuntimeError`を
+    送出する。
     """
     startup_parameters: dict[str, str] = {}
     if use_real_github:
@@ -166,6 +176,11 @@ def build_application(*, use_real_github: bool = False, use_real_slack: bool = F
         if not slack_token:
             raise RuntimeError("use_real_slack=True の場合、環境変数 SLACK_BOT_TOKEN の設定が必要です。")
         startup_parameters["connector.slack_bot_token"] = slack_token
+    if use_real_codex:
+        anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not anthropic_api_key:
+            raise RuntimeError("use_real_codex=True の場合、環境変数 ANTHROPIC_API_KEY の設定が必要です。")
+        startup_parameters["executor.api_key"] = anthropic_api_key
 
     config = build_configuration_manager(startup_parameters=startup_parameters)
     load_result = config.load(
@@ -181,7 +196,8 @@ def build_application(*, use_real_github: bool = False, use_real_slack: bool = F
     planner = Planner(config_client=config)
     architect = ArchitectModule(config_client=config)
     design_auditor = DesignAuditor(config_client=config)
-    executor = Executor(codex_adapter=StubCodexAdapter(), repository_guard=RepositoryGuard())
+    codex_adapter: CodexAdapter = ClaudeCodexAdapter(configuration_client=config) if use_real_codex else StubCodexAdapter()
+    executor = Executor(codex_adapter=codex_adapter, repository_guard=RepositoryGuard())
 
     # TesterConfig(src/tester/models.py)は全フィールド必須(既定値なし)。config/default.jsonに
     # "tester"セクションは存在しないため、StubCommandExecutorが実行内容を無視することを踏まえた
