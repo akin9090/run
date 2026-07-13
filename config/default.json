@@ -64,6 +64,10 @@
     "health_check": true
   },
   "notification": {
-    "health_check": true
+    "health_check": true,
+    "default_recipient": "",
+    "default_channel": "slack",
+    "system_error_template": "[Monitoring] システム異常を検知しました。failures={failures} warnings={warnings}",
+    "review_completed_template": "[Workflow] レビュー完了: decision={decision} next_module={next_module}"
   }
 }

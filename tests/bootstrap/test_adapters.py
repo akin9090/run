@@ -24,6 +24,7 @@ from pathlib import Path
 from architect.analyzer import analyze_plan
 from bootstrap.adapters import (
     NotificationChannelConnectorBridge,
+    monitoring_report_to_notification_event,
     to_architect_execution_plan,
     to_connector_outbound_message,
     to_executor_approved_design,
@@ -40,6 +41,7 @@ from foundation.errors import ExternalServiceError
 from foundation.result import Result
 from foundation.types import Design, Implementation
 from foundation.utils import utc_now
+from monitoring.models import HealthStatus, Metrics, MonitoringReport, PerformanceSummary, SystemResourceStatus
 from notification.errors import UnsupportedChannelError
 from notification.types import Channel, EventType, NotificationMessage
 from planner.types import ExecutionPlan
@@ -452,6 +454,80 @@ class NotificationChannelConnectorBridgeTest(unittest.TestCase):
         self.assertEqual(delivered_message.channel_id, "#dev-notifications")
         self.assertEqual(delivered_message.content_type, MessageContentType.TEXT)
         self.assertIn("PR #152 を作成しました", delivered_message.text or "")
+
+
+def _make_monitoring_report(*, overall_healthy: bool, failures: list[str], warnings: list[str]) -> MonitoringReport:
+    now = utc_now()
+    health_status = HealthStatus(
+        id="health-1",
+        created_at=now,
+        updated_at=now,
+        metadata={},
+        evaluated_at=now,
+        overall_healthy=overall_healthy,
+        module_health=[],
+        warnings=warnings,
+        failures=failures,
+    )
+    metrics = Metrics(
+        id="metrics-1",
+        created_at=now,
+        updated_at=now,
+        metadata={},
+        collected_at=now,
+        system_resources=SystemResourceStatus(
+            cpu_percent=0.0, memory_percent=0.0, disk_percent=0.0, network_io_bytes_per_sec=0.0
+        ),
+        workflow_metrics=[],
+        module_metrics=[],
+    )
+    return MonitoringReport(
+        id="report-1",
+        created_at=now,
+        updated_at=now,
+        metadata={},
+        health_status=health_status,
+        metrics=metrics,
+        failures=failures,
+        warnings=warnings,
+        performance_summary=PerformanceSummary(
+            average_execution_time_seconds=0.0, success_rate=0.0, failure_rate=0.0, total_workflows=0
+        ),
+    )
+
+
+class MonitoringReportToNotificationEventTest(unittest.TestCase):
+    def test_returns_none_when_report_is_healthy(self) -> None:
+        report = _make_monitoring_report(overall_healthy=True, failures=[], warnings=[])
+
+        event = monitoring_report_to_notification_event(report, recipient="ops-channel", channel=Channel.SLACK)
+
+        self.assertIsNone(event)
+
+    def test_returns_system_error_event_when_report_is_unhealthy(self) -> None:
+        report = _make_monitoring_report(
+            overall_healthy=False, failures=["workflow wf-1 failed"], warnings=["Executor: retry count exceeded"]
+        )
+
+        event = monitoring_report_to_notification_event(report, recipient="ops-channel", channel=Channel.SLACK)
+
+        self.assertIsNotNone(event)
+        self.assertEqual(event.workflow_id, "report-1")
+        self.assertEqual(event.event_type, EventType.SYSTEM_ERROR)
+        self.assertEqual(event.recipient, "ops-channel")
+        self.assertEqual(event.notification_template, "system_error_template")
+        self.assertEqual(event.configuration, {"channel": "slack"})
+        self.assertEqual(event.event_result["failures"], "workflow wf-1 failed")
+        self.assertEqual(event.event_result["warnings"], "Executor: retry count exceeded")
+
+    def test_returns_placeholder_text_when_no_failures_or_warnings(self) -> None:
+        report = _make_monitoring_report(overall_healthy=False, failures=[], warnings=[])
+
+        event = monitoring_report_to_notification_event(report, recipient="ops-channel", channel=Channel.SLACK)
+
+        self.assertIsNotNone(event)
+        self.assertEqual(event.event_result["failures"], "(none)")
+        self.assertEqual(event.event_result["warnings"], "(none)")
 
 
 if __name__ == "__main__":

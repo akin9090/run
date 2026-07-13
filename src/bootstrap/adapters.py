@@ -35,8 +35,9 @@ from design_auditor.types import ApprovedDesign
 from executor.models import ImplementationResult, ModifiedFile
 from foundation.result import Result
 from foundation.types import Implementation
+from monitoring.models import MonitoringReport
 from notification.errors import UnsupportedChannelError
-from notification.types import Channel, NotificationMessage
+from notification.types import Channel, EventType, NotificationEvent, NotificationMessage
 from planner.types import ExecutionPlan
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "ExecutorApprovedDesignView",
     "ExecutorImplementationView",
     "NotificationChannelConnectorBridge",
+    "monitoring_report_to_notification_event",
     "to_architect_execution_plan",
     "to_connector_outbound_message",
     "to_executor_approved_design",
@@ -219,3 +221,31 @@ class NotificationChannelConnectorBridge:
             return Result(success=False, error=delivery_result.error)
 
         return Result(success=True, value=delivery_result.value.delivered)
+
+
+def monitoring_report_to_notification_event(
+    report: MonitoringReport, recipient: str, channel: Channel
+) -> NotificationEvent | None:
+    """MonitoringReportが不健全な場合のみ、Notification(M15)向けのSYSTEM_ERROR
+    NotificationEventを組み立てる(Phase 3: Monitoring→Notification実アラート配線)。
+
+    Monitoring(M16)はRead Only設計であり通知送信を行わないため、この橋渡しは
+    composition root(bootstrap層)の責務とする。健全な場合は通知不要のためNoneを返す。
+
+    `workflow_id`はMonitoringReport自体がWorkflow単位のドメインではないため、
+    `report.id`を相関ID代わりに用いる。
+    """
+    if report.health_status.overall_healthy:
+        return None
+
+    return NotificationEvent(
+        workflow_id=report.id,
+        event_type=EventType.SYSTEM_ERROR,
+        event_result={
+            "failures": "; ".join(report.failures) if report.failures else "(none)",
+            "warnings": "; ".join(report.warnings) if report.warnings else "(none)",
+        },
+        recipient=recipient,
+        notification_template="system_error_template",
+        configuration={"channel": channel.value},
+    )
