@@ -56,6 +56,7 @@ from monitoring.reporter import ReportGenerator
 from notification.history import NotificationHistoryStore
 from notification.service import NotificationModule
 from notification.types import Channel
+from permission_manager.default_permissions import SHADOW_MODE_PERMISSIONS
 from permission_manager.permission_manager import PermissionManager
 from planner.planner import Planner
 from pr_creator.github_client import GitHubPullRequestClient
@@ -142,7 +143,11 @@ class Application:
 
 
 def build_application(
-    *, use_real_github: bool = False, use_real_slack: bool = False, use_real_codex: bool = False
+    *,
+    use_real_github: bool = False,
+    use_real_slack: bool = False,
+    use_real_codex: bool = False,
+    shadow_mode: bool = False,
 ) -> Application:
     """21モジュール(Foundationを除く20モジュール)を配線した`Application`を返す。
 
@@ -164,6 +169,11 @@ def build_application(
     `ClaudeCodexAdapter`、`src/executor/claude_codex_adapter.py`に既存)へ接続する。
     APIキーは環境変数`ANTHROPIC_API_KEY`からのみ取得し、未設定の場合は`RuntimeError`を
     送出する。
+
+    `shadow_mode=True`の場合、Permission Manager(M04)はDEFAULT_PERMISSIONSではなく
+    `SHADOW_MODE_PERMISSIONS`(Executorの Pull Request作成のみを除いたプロファイル)で
+    構築される。外部サービスへの接続には影響しない(Permission Managerの権限テーブルの
+    みを切り替える)。
     """
     startup_parameters: dict[str, str] = {}
     if use_real_github:
@@ -192,7 +202,10 @@ def build_application(
     state_manager = StateManager(config_client=config)
     task_queue = TaskQueueManager(config_client=config)
     knowledge_manager = KnowledgeManager(store=KnowledgeStore())
-    permission_manager = PermissionManager(config_client=config)
+    permission_manager = PermissionManager(
+        config_client=config,
+        permissions=SHADOW_MODE_PERMISSIONS if shadow_mode else None,
+    )
     planner = Planner(config_client=config)
     architect = ArchitectModule(config_client=config)
     design_auditor = DesignAuditor(config_client=config)

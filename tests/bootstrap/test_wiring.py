@@ -13,6 +13,8 @@ from connector.http_client import UrllibHttpClient
 from executor.claude_codex_adapter import ClaudeCodexAdapter
 from github_manager.client import UrllibHttpTransport
 from notification.types import Channel
+from permission_manager.default_permissions import DEFAULT_PERMISSIONS, SHADOW_MODE_PERMISSIONS
+from permission_manager.models import Module, Operation
 
 
 class BuildApplicationTest(unittest.TestCase):
@@ -129,6 +131,29 @@ class UseRealCodexTest(unittest.TestCase):
     def test_use_real_codex_without_key_raises_runtime_error(self) -> None:
         with self.assertRaises(RuntimeError):
             build_application(use_real_codex=True)
+
+
+class ShadowModeTest(unittest.TestCase):
+    """Phase 3: `shadow_mode=True`時にPermission ManagerがShadow Modeプロファイル
+    (`SHADOW_MODE_PERMISSIONS`)で構築されることを確認する。"""
+
+    def test_default_wiring_uses_default_permissions(self) -> None:
+        app = build_application()
+
+        self.assertEqual(app.permission_manager._permissions, DEFAULT_PERMISSIONS)  # noqa: SLF001
+
+    def test_shadow_mode_wires_shadow_mode_permissions(self) -> None:
+        app = build_application(shadow_mode=True)
+
+        self.assertEqual(app.permission_manager._permissions, SHADOW_MODE_PERMISSIONS)  # noqa: SLF001
+
+    def test_shadow_mode_denies_executor_pull_request_create(self) -> None:
+        app = build_application(shadow_mode=True)
+
+        result = app.permission_manager.check_permission(Module.EXECUTOR, Operation.PULL_REQUEST_CREATE)
+
+        self.assertTrue(result.success)
+        self.assertFalse(result.value)
 
 
 if __name__ == "__main__":
