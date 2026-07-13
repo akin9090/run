@@ -3,7 +3,7 @@ import unittest
 from foundation.errors import ConfigurationError, PermissionDeniedError, ValidationError
 from foundation.interfaces import ConfigurationClient
 from foundation.result import Result
-from permission_manager.default_permissions import DEFAULT_PERMISSIONS
+from permission_manager.default_permissions import DEFAULT_PERMISSIONS, SHADOW_MODE_PERMISSIONS
 from permission_manager.models import Effect, Module, Operation, PermissionEntry
 from permission_manager.permission_manager import PermissionManager
 
@@ -136,6 +136,37 @@ class CheckPermissionFailsafeTest(unittest.TestCase):
         result = self.manager.list_permissions(Module.PLANNER)
         self.assertEqual(result.value, [Operation.EXECUTION_PLAN_CREATE])
         self.assertNotIn(Operation.DESIGN_CREATE, result.value)
+
+
+class ShadowModePermissionsTest(unittest.TestCase):
+    def test_shadow_mode_permissions_denies_executor_pull_request_create(self) -> None:
+        manager = PermissionManager(permissions=SHADOW_MODE_PERMISSIONS)
+
+        result = manager.check_permission(Module.EXECUTOR, Operation.PULL_REQUEST_CREATE)
+
+        self.assertTrue(result.success)
+        self.assertFalse(result.value)
+        self.assertIsInstance(result.error, PermissionDeniedError)
+
+    def test_shadow_mode_permissions_still_allows_planner_execution_plan_create(self) -> None:
+        manager = PermissionManager(permissions=SHADOW_MODE_PERMISSIONS)
+
+        result = manager.check_permission(Module.PLANNER, Operation.EXECUTION_PLAN_CREATE)
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.value)
+
+    def test_shadow_mode_permissions_is_default_permissions_minus_pull_request_create(self) -> None:
+        expected = tuple(
+            entry
+            for entry in DEFAULT_PERMISSIONS
+            if not (entry.module is Module.EXECUTOR and entry.operation is Operation.PULL_REQUEST_CREATE)
+        )
+        self.assertEqual(SHADOW_MODE_PERMISSIONS, expected)
+
+    def test_default_constructor_without_permissions_arg_uses_default_permissions(self) -> None:
+        manager = PermissionManager()
+        self.assertEqual(manager._permissions, DEFAULT_PERMISSIONS)
 
 
 class ListPermissionsTest(unittest.TestCase):

@@ -21,3 +21,12 @@ DEFAULT_PERMISSIONS: tuple[PermissionEntry, ...] = (
     PermissionEntry(Module.KNOWLEDGE_MANAGER, Operation.KNOWLEDGE_UPDATE, Effect.ALLOW),
     PermissionEntry(Module.COMMAND_ROUTER, Operation.COMMAND_DISPATCH, Effect.ALLOW),
 )
+
+# Phase 3 Shadow Mode: DEFAULT_PERMISSIONSから「Executorによる Pull Request作成」の
+# Allowエントリのみを除いた一時的な制限プロファイル。「表に無い組み合わせ=Deny」という
+# 既存のフェイルセーフ方針(設計書4.3)により、Denyエントリを明示的に追加する必要はない。
+SHADOW_MODE_PERMISSIONS: tuple[PermissionEntry, ...] = tuple(
+    entry
+    for entry in DEFAULT_PERMISSIONS
+    if not (entry.module is Module.EXECUTOR and entry.operation is Operation.PULL_REQUEST_CREATE)
+)
